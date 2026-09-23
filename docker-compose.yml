@@ -1,0 +1,46 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cashflow-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - VITE_SUPABASE_URL=http://supabase:8000
+      - VITE_SUPABASE_ANON_KEY=placeholder_anon_key_for_local_dev
+      - SUPABASE_SERVICE_ROLE_KEY=placeholder_service_key_for_local_dev
+      - FASTAPI_AI_URL=http://ai-service:8000
+    depends_on:
+      ai-service:
+        condition: service_healthy
+    networks:
+      - cashflow-net
+
+  ai-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai
+    container_name: cashflow-ai-service
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - APP_ENV=production
+      - PORT=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - cashflow-net
+
+networks:
+  cashflow-net:
+    driver: bridge

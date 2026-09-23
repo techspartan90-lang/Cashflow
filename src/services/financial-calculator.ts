@@ -285,3 +285,47 @@ export class FinancialCalculatorService {
     return { breaches, dailyProgression };
   }
 }
+
+/**
+ * Cash Conversion Cycle (CCC) Metric Calculator
+ * CCC = DIO + DSO - DPO
+ * Measures working capital efficiency and liquidity velocity.
+ */
+export const CashConversionCycle = {
+  calculate(params: {
+    inventoryValue: number;
+    cogsAnnual: number;
+    accountsReceivable: number;
+    totalCreditSalesAnnual: number;
+    accountsPayable: number;
+    totalPurchasesAnnual: number;
+  }): { dio: number; dso: number; dpo: number; ccc: number } {
+    const {
+      inventoryValue,
+      cogsAnnual,
+      accountsReceivable,
+      totalCreditSalesAnnual,
+      accountsPayable,
+      totalPurchasesAnnual,
+    } = params;
+
+    // Days Inventory Outstanding = (Inventory / COGS) * 365
+    const dio = cogsAnnual > 0 ? (inventoryValue / cogsAnnual) * 365 : 0;
+
+    // Days Sales Outstanding = (Accounts Receivable / Total Credit Sales) * 365
+    const dso = totalCreditSalesAnnual > 0 ? (accountsReceivable / totalCreditSalesAnnual) * 365 : 0;
+
+    // Days Payable Outstanding = (Accounts Payable / Total Purchases) * 365
+    const dpo = totalPurchasesAnnual > 0 ? (accountsPayable / totalPurchasesAnnual) * 365 : 0;
+
+    // CCC = DIO + DSO - DPO
+    const ccc = dio + dso - dpo;
+
+    return {
+      dio: Math.round(dio * 10) / 10,
+      dso: Math.round(dso * 10) / 10,
+      dpo: Math.round(dpo * 10) / 10,
+      ccc: Math.round(ccc * 10) / 10,
+    };
+  },
+};

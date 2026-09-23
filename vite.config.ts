@@ -32,11 +32,67 @@ import {
 } from './server/forecast-handler';
 import { handleScenarioApi } from './server/scenario-handler';
 import { handleMonitoringApi } from './server/monitoring-handler';
+import {
+  applySecurityHeaders,
+  checkRateLimit,
+  getSystemHealth,
+} from './src/server/security-middleware';
 
 function apiMiddlewarePlugin(): Plugin {
   return {
     name: 'api-middleware',
     configureServer(server) {
+      // 0. Security Headers, Rate Limiting & Health Observability
+      server.middlewares.use((req, res, next) => {
+        applySecurityHeaders(res);
+
+        const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+
+        // Health Observability Endpoints
+        if (url.pathname === '/health' || url.pathname === '/ready') {
+          const health = getSystemHealth();
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 200;
+          res.end(JSON.stringify(health, null, 2));
+          return;
+        }
+
+        if (url.pathname === '/version') {
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 200;
+          res.end(
+            JSON.stringify({
+              app: 'cashflow-forecasting-system',
+              version: '1.0.0',
+              environment: process.env.NODE_ENV || 'development',
+              sha: 'phase-8-production-ready',
+            })
+          );
+          return;
+        }
+
+        // Rate limiting for /api/ routes
+        if (url.pathname.startsWith('/api/')) {
+          const rateResult = checkRateLimit(req);
+          res.setHeader('X-RateLimit-Remaining', rateResult.remaining.toString());
+          res.setHeader('X-RateLimit-Reset', Math.ceil(rateResult.resetTime / 1000).toString());
+
+          if (!rateResult.allowed) {
+            res.setHeader('Content-Type', 'application/json');
+            res.statusCode = 429;
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: 'Too Many Requests: Rate limit exceeded. Please retry in 60 seconds.',
+              })
+            );
+            return;
+          }
+        }
+
+        next();
+      });
+
       // Helper to handle JSON POST requests
       const handleJsonPost = (
         endpoint: string,
@@ -204,8 +260,11 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss(), apiMiddlewarePlugin()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname || '.', '.'),
       },
+    },
+    build: {
+      chunkSizeWarningLimit: 2500,
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
