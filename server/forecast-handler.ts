@@ -5,6 +5,7 @@
 
 import { ForecastEngine, ForecastEngineInput, ForecastScenario } from '../src/services/forecast-engine';
 import { inMemoryStore } from './import-handler';
+import { getDatabase } from './db';
 import type { Database } from '../src/types/database';
 
 type BankAccountRow = Database['public']['Tables']['bank_accounts']['Row'];
@@ -433,6 +434,96 @@ export async function handleForecastGenerate(payload: {
     created_at: result.generationTimestamp,
   });
 
+  // Persist to persistent SQLite database
+  try {
+    const db = getDatabase();
+    db.prepare(`
+      INSERT OR REPLACE INTO forecast_runs (
+        id, organization_id, forecast_version, scenario_type, start_date, end_date,
+        horizon_days, timezone, opening_cash, minimum_cash_threshold, total_expected_inflows,
+        total_expected_outflows, net_cash_flow, minimum_projected_cash, shortfall_days,
+        risk_level, assumptions_snapshot, calculation_status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      runRow.id,
+      runRow.organization_id,
+      runRow.forecast_version,
+      runRow.scenario_type,
+      runRow.start_date,
+      runRow.end_date,
+      runRow.horizon_days,
+      runRow.timezone,
+      runRow.opening_cash,
+      runRow.minimum_cash_threshold,
+      runRow.total_expected_inflows,
+      runRow.total_expected_outflows,
+      runRow.net_cash_flow,
+      runRow.minimum_projected_cash,
+      runRow.shortfall_days,
+      runRow.risk_level,
+      JSON.stringify(runRow.assumptions_snapshot),
+      runRow.calculation_status,
+      runRow.created_at
+    );
+
+    // Persist daily projections to SQLite
+    const insertDailyStmt = db.prepare(`
+      INSERT OR REPLACE INTO forecast_daily_projections (
+        id, forecast_run_id, organization_id, day_index, projection_date,
+        beginning_cash, expected_inflows, expected_outflows, net_cash_flow,
+        ending_cash, minimum_threshold, threshold_status, shortfall_deficit,
+        risk_factors, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const day of result.dailyForecast) {
+      insertDailyStmt.run(
+        `dp-${result.forecastId}-${day.dayIndex}`,
+        result.forecastId,
+        orgId,
+        day.dayIndex,
+        day.date,
+        day.beginningCash,
+        day.expectedInflows,
+        day.expectedOutflows,
+        day.netCashFlow,
+        day.endingCash,
+        result.minimumCashThreshold,
+        day.thresholdStatus,
+        day.shortfallDeficit,
+        JSON.stringify(day.riskFactors || []),
+        result.generationTimestamp
+      );
+    }
+
+    // Persist forecast items to SQLite
+    const insertItemStmt = db.prepare(`
+      INSERT OR REPLACE INTO forecast_items (
+        id, forecast_run_id, organization_id, scheduled_date, flow_type,
+        category, amount, source, description, certainty, entity_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const item of result.allForecastItems) {
+      insertItemStmt.run(
+        item.id,
+        result.forecastId,
+        orgId,
+        item.date,
+        item.type,
+        item.category,
+        item.amount,
+        item.source,
+        item.description,
+        item.certainty,
+        item.entityId || null,
+        result.generationTimestamp
+      );
+    }
+  } catch (e) {
+    console.error('Failed to save forecast run to SQLite:', e);
+  }
+
   return {
     success: true,
     data: result,
@@ -469,7 +560,21 @@ export async function handleForecastPreview(payload: {
 export async function handleGetForecastRuns(query: { organizationId?: string }) {
   const orgId = query.organizationId || DEFAULT_ORG_ID;
   initializeOrgDefaults(orgId);
-  const runs = forecastStore.forecastRuns.get(orgId) || [];
+  let runs = forecastStore.forecastRuns.get(orgId) || [];
+
+  if (runs.length === 0) {
+    try {
+      const db = getDatabase();
+      const rows = db.prepare('SELECT * FROM forecast_runs WHERE organization_id = ? ORDER BY forecast_version DESC').all(orgId) as any[];
+      if (rows && rows.length > 0) {
+        runs = rows.map((r) => ({
+          ...r,
+          assumptions_snapshot: r.assumptions_snapshot ? JSON.parse(r.assumptions_snapshot) : {},
+        }));
+        forecastStore.forecastRuns.set(orgId, runs);
+      }
+    } catch {}
+  }
 
   return {
     success: true,

@@ -13,7 +13,9 @@ type ImportHistoryRow = Database['public']['Tables']['import_history']['Row'];
 type ReceivableRow = Database['public']['Tables']['accounts_receivable']['Row'];
 type PayableRow = Database['public']['Tables']['accounts_payable']['Row'];
 
-// In-memory tenant store (fallback / dev cache synced with Supabase)
+import { getDatabase } from './db';
+
+// In-memory tenant store (fallback / dev cache synced with persistent database)
 export const inMemoryStore = {
   transactions: new Map<string, TransactionRow[]>(),
   importHistory: new Map<string, ImportHistoryRow[]>(),
@@ -25,8 +27,38 @@ export const inMemoryStore = {
 const DEFAULT_ORG_ID = '11111111-1111-1111-1111-111111111111';
 
 function getOrgTransactions(orgId: string): TransactionRow[] {
-  if (!inMemoryStore.transactions.has(orgId)) {
-    inMemoryStore.transactions.set(orgId, []);
+  if (!inMemoryStore.transactions.has(orgId) || inMemoryStore.transactions.get(orgId)!.length === 0) {
+    try {
+      const db = getDatabase();
+      const rows = db.prepare('SELECT * FROM financial_transactions WHERE organization_id = ? ORDER BY transaction_date DESC').all(orgId) as any[];
+      if (rows && rows.length > 0) {
+        const txs: TransactionRow[] = rows.map((r) => ({
+          id: r.id,
+          organization_id: r.organization_id,
+          bank_account_id: r.bank_account_id,
+          transaction_type: r.transaction_type,
+          category: r.category,
+          description: r.description || '',
+          amount: r.amount,
+          transaction_date: r.transaction_date,
+          settlement_date: r.settlement_date,
+          counterparty: r.counterparty,
+          reference_number: r.reference_number,
+          status: r.status,
+          source: r.source,
+          is_recurring: Boolean(r.is_recurring),
+          created_at: r.created_at,
+          updated_at: r.updated_at,
+        }));
+        inMemoryStore.transactions.set(orgId, txs);
+        return txs;
+      }
+    } catch (e) {
+      console.warn('Could not read transactions from SQLite:', e);
+    }
+    if (!inMemoryStore.transactions.has(orgId)) {
+      inMemoryStore.transactions.set(orgId, []);
+    }
   }
   return inMemoryStore.transactions.get(orgId)!;
 }
@@ -39,15 +71,63 @@ function getOrgImportHistory(orgId: string): ImportHistoryRow[] {
 }
 
 function getOrgReceivables(orgId: string): ReceivableRow[] {
-  if (!inMemoryStore.receivables.has(orgId)) {
-    inMemoryStore.receivables.set(orgId, []);
+  if (!inMemoryStore.receivables.has(orgId) || inMemoryStore.receivables.get(orgId)!.length === 0) {
+    try {
+      const db = getDatabase();
+      const rows = db.prepare('SELECT * FROM accounts_receivable WHERE organization_id = ? ORDER BY due_date ASC').all(orgId) as any[];
+      if (rows && rows.length > 0) {
+        const ars: ReceivableRow[] = rows.map((r) => ({
+          id: r.id,
+          organization_id: r.organization_id,
+          customer_id: r.customer_id,
+          invoice_number: r.invoice_number,
+          invoice_date: r.issue_date || r.invoice_date,
+          due_date: r.due_date,
+          invoice_amount: r.amount || r.invoice_amount,
+          outstanding_amount: (r.amount || r.invoice_amount) - (r.paid_amount || 0),
+          expected_collection_date: r.expected_collection_date,
+          status: r.status,
+          created_at: r.created_at,
+          updated_at: r.updated_at,
+        }));
+        inMemoryStore.receivables.set(orgId, ars);
+        return ars;
+      }
+    } catch {}
+    if (!inMemoryStore.receivables.has(orgId)) {
+      inMemoryStore.receivables.set(orgId, []);
+    }
   }
   return inMemoryStore.receivables.get(orgId)!;
 }
 
 function getOrgPayables(orgId: string): PayableRow[] {
-  if (!inMemoryStore.payables.has(orgId)) {
-    inMemoryStore.payables.set(orgId, []);
+  if (!inMemoryStore.payables.has(orgId) || inMemoryStore.payables.get(orgId)!.length === 0) {
+    try {
+      const db = getDatabase();
+      const rows = db.prepare('SELECT * FROM accounts_payable WHERE organization_id = ? ORDER BY due_date ASC').all(orgId) as any[];
+      if (rows && rows.length > 0) {
+        const aps: PayableRow[] = rows.map((r) => ({
+          id: r.id,
+          organization_id: r.organization_id,
+          supplier_id: r.supplier_id,
+          invoice_number: r.bill_number || r.invoice_number,
+          invoice_date: r.bill_date || r.invoice_date,
+          due_date: r.due_date,
+          invoice_amount: r.amount || r.invoice_amount,
+          outstanding_amount: r.amount || r.outstanding_amount,
+          expected_payment_date: r.scheduled_payment_date || r.expected_payment_date,
+          status: r.status,
+          created_at: r.created_at,
+          updated_at: r.updated_at,
+        }));
+        inMemoryStore.payables.set(orgId, aps);
+        return aps;
+      }
+    } catch {}
+    if (!inMemoryStore.payables.has(orgId)) {
+      inMemoryStore.payables.set(orgId, []);
+    }
   }
   return inMemoryStore.payables.get(orgId)!;
 }
@@ -218,6 +298,72 @@ export async function handleImportConfirm(payload: {
   };
 
   getOrgImportHistory(orgId).unshift(historyRow);
+
+  try {
+    const db = getDatabase();
+    const insertStmt = db.prepare(`
+      INSERT OR REPLACE INTO financial_transactions (
+        id, organization_id, bank_account_id, business_id, transaction_type, category,
+        description, amount, currency, transaction_date, expected_date, actual_date,
+        counterparty, invoice_id, reference_number, status, source, confidence, notes,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const tx of insertedTxs) {
+      insertStmt.run(
+        tx.id,
+        tx.organization_id,
+        tx.bank_account_id || null,
+        orgId,
+        tx.transaction_type,
+        tx.category,
+        tx.description || '',
+        tx.amount,
+        'INR',
+        tx.transaction_date,
+        tx.settlement_date || tx.transaction_date,
+        tx.settlement_date || null,
+        tx.counterparty,
+        null,
+        tx.reference_number || null,
+        tx.status,
+        tx.source,
+        1.0,
+        tx.description || null,
+        tx.created_at,
+        tx.updated_at
+      );
+    }
+
+    db.prepare(`
+      INSERT OR REPLACE INTO import_history (
+        id, organization_id, user_id, file_name, file_size, import_type, upload_timestamp,
+        total_rows, imported_rows, rejected_rows, duplicate_rows, warning_rows,
+        total_inflows, total_outflows, net_cash_flow, status, error_summary, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      historyRow.id,
+      historyRow.organization_id,
+      historyRow.user_id || null,
+      historyRow.file_name,
+      historyRow.file_size,
+      historyRow.import_type,
+      historyRow.upload_timestamp,
+      historyRow.total_rows,
+      historyRow.imported_rows,
+      historyRow.rejected_rows,
+      historyRow.duplicate_rows,
+      historyRow.warning_rows || 0,
+      historyRow.total_inflows,
+      historyRow.total_outflows,
+      historyRow.net_cash_flow,
+      historyRow.status,
+      historyRow.error_summary ? JSON.stringify(historyRow.error_summary) : null,
+      historyRow.created_at
+    );
+  } catch (e) {
+    console.error('Failed to persist confirmed import to SQLite:', e);
+  }
 
   // Audit Log
   inMemoryStore.auditLogs.unshift({

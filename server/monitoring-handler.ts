@@ -31,6 +31,7 @@ import {
 import { ForecastEngine } from '../src/services/forecast-engine';
 import { inMemoryStore } from './import-handler';
 import { forecastStore } from './forecast-handler';
+import { getDatabase } from './db';
 
 const DEFAULT_ORG_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -493,6 +494,34 @@ export async function handleMonitoringApi(
 
     const existingEvents = monitoringStore.alertEvents.get(orgId) || [];
     monitoringStore.alertEvents.set(orgId, [event, ...existingEvents]);
+
+    try {
+      const db = getDatabase();
+      db.prepare(`
+        INSERT OR REPLACE INTO financial_alerts (
+          id, organization_id, alert_type, severity, status, title, description,
+          recommended_review_action, is_read, acknowledged_at, resolved_at, dismissed_at,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        updatedAlert.id,
+        orgId,
+        updatedAlert.alert_type,
+        updatedAlert.severity,
+        updatedAlert.status,
+        updatedAlert.title,
+        updatedAlert.description,
+        updatedAlert.recommended_review_action || null,
+        updatedAlert.is_read ? 1 : 0,
+        updatedAlert.acknowledged_at || null,
+        updatedAlert.resolved_at || null,
+        updatedAlert.dismissed_at || null,
+        updatedAlert.created_at,
+        updatedAlert.updated_at
+      );
+    } catch (e) {
+      console.error('Failed to sync alert update to SQLite:', e);
+    }
 
     sendJson(res, 200, { success: true, data: updatedAlert });
     return true;

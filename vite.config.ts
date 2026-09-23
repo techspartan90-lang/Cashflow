@@ -33,6 +33,7 @@ import {
 } from './server/forecast-handler';
 import { handleScenarioApi } from './server/scenario-handler';
 import { handleMonitoringApi } from './server/monitoring-handler';
+import { DatabaseService } from './server/db';
 import {
   applySecurityHeaders,
   checkRateLimit,
@@ -99,7 +100,7 @@ function apiMiddlewarePlugin(): Plugin {
         endpoint: string,
         handler: (data: any) => Promise<any>
       ) => {
-        server.middlewares.use(endpoint, async (req, res) => {
+        server.middlewares.use(endpoint, async (req, res, next) => {
           if (req.method === 'POST') {
             let body = '';
             req.on('data', (chunk: Buffer) => {
@@ -124,8 +125,7 @@ function apiMiddlewarePlugin(): Plugin {
               }
             });
           } else {
-            res.statusCode = 405;
-            res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+            next();
           }
         });
       };
@@ -135,7 +135,7 @@ function apiMiddlewarePlugin(): Plugin {
         endpoint: string,
         handler: (query: any) => Promise<any>
       ) => {
-        server.middlewares.use(endpoint, async (req, res) => {
+        server.middlewares.use(endpoint, async (req, res, next) => {
           if (req.method === 'GET') {
             try {
               const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
@@ -153,11 +153,98 @@ function apiMiddlewarePlugin(): Plugin {
               res.end(JSON.stringify({ success: false, error: err?.message || 'Server error' }));
             }
           } else {
-            res.statusCode = 405;
-            res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+            next();
           }
         });
       };
+
+      // Database Persistence & Full Working Model APIs
+      handleJsonGet('/api/bootstrap', async () => ({
+        success: true,
+        data: DatabaseService.getBootstrapData(),
+      }));
+
+      handleJsonGet('/api/database/status', async () => ({
+        success: true,
+        data: DatabaseService.getStats(),
+      }));
+
+      handleJsonPost('/api/reset-demo', async () => ({
+        success: true,
+        data: DatabaseService.resetDatabase(),
+      }));
+
+      handleJsonPost('/api/transactions', async (data) => ({
+        success: true,
+        data: DatabaseService.createTransaction(data),
+      }));
+
+      handleJsonPost('/api/invoices/receivable', async (data) => ({
+        success: true,
+        data: DatabaseService.createReceivable(data),
+      }));
+
+      handleJsonPost('/api/invoices/payable', async (data) => ({
+        success: true,
+        data: DatabaseService.createPayable(data),
+      }));
+
+      handleJsonPost('/api/operating-expenses', async (data) => ({
+        success: true,
+        data: DatabaseService.createOperatingExpense(data),
+      }));
+
+      // Dynamic path updates (PATCH / PUT / toggle)
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url) return next();
+        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const pathname = url.pathname;
+
+        const readBody = (): Promise<any> =>
+          new Promise((resolve) => {
+            let b = '';
+            req.on('data', (c) => (b += c.toString()));
+            req.on('end', () => {
+              try {
+                resolve(b ? JSON.parse(b) : {});
+              } catch {
+                resolve({});
+              }
+            });
+            req.on('error', () => resolve({}));
+          });
+
+        if ((req.method === 'PATCH' || req.method === 'PUT') && pathname.startsWith('/api/invoices/receivable/')) {
+          const id = pathname.replace('/api/invoices/receivable/', '');
+          const body = await readBody();
+          const updated = DatabaseService.updateReceivable(id, body);
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = updated ? 200 : 404;
+          res.end(JSON.stringify({ success: !!updated, data: updated }));
+          return;
+        }
+
+        if ((req.method === 'PATCH' || req.method === 'PUT') && pathname.startsWith('/api/invoices/payable/')) {
+          const id = pathname.replace('/api/invoices/payable/', '');
+          const body = await readBody();
+          const updated = DatabaseService.updatePayable(id, body);
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = updated ? 200 : 404;
+          res.end(JSON.stringify({ success: !!updated, data: updated }));
+          return;
+        }
+
+        if (req.method === 'POST' && pathname.startsWith('/api/recommendations/') && pathname.endsWith('/toggle')) {
+          const id = pathname.replace('/api/recommendations/', '').replace('/toggle', '');
+          const toggled = DatabaseService.toggleRecommendation(id);
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = toggled ? 200 : 404;
+          res.end(JSON.stringify({ success: !!toggled, data: toggled }));
+          return;
+        }
+
+        next();
+      });
 
       // 1. Financial Deep Advisory
       handleJsonPost('/api/gemini/analyze', handleAiFinancialAnalysis);

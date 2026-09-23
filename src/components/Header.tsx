@@ -11,6 +11,7 @@ import {
   TrendingUp,
   Bell,
   SlidersHorizontal,
+  Database as DatabaseIcon,
 } from 'lucide-react';
 import { ScenarioType } from '../types/financial';
 
@@ -28,6 +29,8 @@ interface HeaderProps {
   onExportCsv: () => void;
   onResetDemo: () => void;
   isAiLoading: boolean;
+  databaseStats?: any;
+  onRefreshDatabase?: () => void;
   onOpenLiveVoice?: () => void;
   onOpenChat?: () => void;
   onOpenGrounding?: () => void;
@@ -51,6 +54,8 @@ export const Header: React.FC<HeaderProps> = ({
   onExportCsv,
   onResetDemo,
   isAiLoading,
+  databaseStats,
+  onRefreshDatabase,
   onOpenLiveVoice,
   onOpenChat,
   onOpenGrounding,
@@ -75,6 +80,16 @@ export const Header: React.FC<HeaderProps> = ({
                 </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                   30-Day Engine
+                </span>
+                <span
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs"
+                  title={`Database: ${databaseStats?.engine || 'SQLite (Node.js 22 node:sqlite)'} (${databaseStats?.totalRows || 0} rows stored)`}
+                >
+                  <DatabaseIcon className="w-3 h-3 text-indigo-600" />
+                  <span>DB: Connected</span>
+                  <span className="text-[10px] text-indigo-700 font-mono font-semibold bg-indigo-100/70 px-1 rounded">
+                    {databaseStats?.totalRows ? `${databaseStats.totalRows} records` : 'SQLite'}
+                  </span>
                 </span>
               </div>
               <div className="flex items-center text-xs text-slate-500 space-x-3 mt-0.5">

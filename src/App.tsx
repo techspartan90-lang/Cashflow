@@ -39,6 +39,17 @@ import {
   requestAiAdvisory,
   exportDailyForecastCsv,
   AiAdvisoryResponse,
+  fetchBootstrapData,
+  fetchDatabaseStatus,
+  createTransactionApi,
+  createReceivableApi,
+  updateReceivableApi,
+  createPayableApi,
+  updatePayableApi,
+  createOperatingExpenseApi,
+  toggleRecommendationApi,
+  resetDatabaseApi,
+  DatabaseStats,
 } from './services/api-service';
 
 import { Header } from './components/Header';
@@ -128,12 +139,45 @@ export default function App() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [acknowledgedAlertIds, setAcknowledgedAlertIds] = useState<Set<string>>(new Set());
 
+  // Database Persistence State
+  const [databaseStats, setDatabaseStats] = useState<DatabaseStats | null>(null);
+
   // Phase 7 Monitoring & Notification States
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMonitoringSettingsOpen, setIsMonitoringSettingsOpen] = useState(false);
   const [monitoringAlertsCount, setMonitoringAlertsCount] = useState(0);
   const [monitoringRecsCount, setMonitoringRecsCount] = useState(0);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+
+  const loadDatabaseStats = useCallback(async () => {
+    try {
+      const res = await fetchDatabaseStatus();
+      if (res.success && res.data) {
+        setDatabaseStats(res.data);
+      }
+    } catch {}
+  }, []);
+
+  const loadBootstrapFromDatabase = useCallback(async () => {
+    try {
+      const res = await fetchBootstrapData();
+      if (res.success && res.data) {
+        if (res.data.businessProfile) setBusinessProfile(res.data.businessProfile);
+        if (res.data.transactions && res.data.transactions.length > 0) setTransactions(res.data.transactions);
+        if (res.data.salesInvoices && res.data.salesInvoices.length > 0) setSalesInvoices(res.data.salesInvoices);
+        if (res.data.purchaseInvoices && res.data.purchaseInvoices.length > 0) setPurchaseInvoices(res.data.purchaseInvoices);
+        if (res.data.operatingExpenses && res.data.operatingExpenses.length > 0) setOperatingExpenses(res.data.operatingExpenses);
+        if (res.data.inventoryItems && res.data.inventoryItems.length > 0) setInventoryItems(res.data.inventoryItems);
+        if (res.data.loans && res.data.loans.length > 0) setLoans(res.data.loans);
+        if (res.data.taxes && res.data.taxes.length > 0) setTaxes(res.data.taxes);
+        if (res.data.varianceRecords && res.data.varianceRecords.length > 0) setVarianceRecords(res.data.varianceRecords);
+        if (res.data.recommendations && res.data.recommendations.length > 0) setRecommendations(res.data.recommendations);
+        if (res.data.stats) setDatabaseStats(res.data.stats);
+      }
+    } catch (e) {
+      console.warn('Initial load from database failed, using demo baseline:', e);
+    }
+  }, []);
 
   const syncMonitoringCounts = useCallback(async () => {
     try {
@@ -159,8 +203,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    loadBootstrapFromDatabase();
     syncMonitoringCounts();
-  }, [syncMonitoringCounts]);
+  }, [loadBootstrapFromDatabase, syncMonitoringCounts]);
 
   // 2. Deterministic & Stochastic Forecast Engine Computations
   const engineInput: EngineInputState = useMemo(() => ({
@@ -316,7 +361,14 @@ export default function App() {
     }));
   };
 
-  const handleToggleRecommendation = (id: string) => {
+  const handleToggleRecommendation = async (id: string) => {
+    try {
+      await toggleRecommendationApi(id);
+      loadDatabaseStats();
+    } catch (e) {
+      console.warn('Failed to toggle recommendation in database', e);
+    }
+
     setRecommendations((prev) =>
       prev.map((rec) => {
         if (rec.id === id) {
@@ -352,41 +404,108 @@ export default function App() {
     );
   };
 
-  const handleAddTransaction = (tx: FinancialTransaction) => {
+  const handleAddTransaction = async (tx: FinancialTransaction) => {
     setTransactions((prev) => [tx, ...prev]);
+    try {
+      await createTransactionApi(tx);
+      loadDatabaseStats();
+      syncMonitoringCounts();
+    } catch (e) {
+      console.warn('Failed to persist transaction to database:', e);
+    }
   };
 
-  const handleAddArInvoice = (inv: SalesInvoiceAR) => {
+  const handleAddArInvoice = async (inv: SalesInvoiceAR) => {
     setSalesInvoices((prev) => [inv, ...prev]);
+    try {
+      await createReceivableApi(inv);
+      loadDatabaseStats();
+    } catch (e) {
+      console.warn('Failed to persist AR invoice to database:', e);
+    }
   };
 
-  const handleAddApInvoice = (bill: PurchaseInvoiceAP) => {
+  const handleAddApInvoice = async (bill: PurchaseInvoiceAP) => {
     setPurchaseInvoices((prev) => [bill, ...prev]);
+    try {
+      await createPayableApi(bill);
+      loadDatabaseStats();
+    } catch (e) {
+      console.warn('Failed to persist AP invoice to database:', e);
+    }
   };
 
-  const handleAddOpex = (opex: OperatingExpense) => {
+  const handleAddOpex = async (opex: OperatingExpense) => {
     setOperatingExpenses((prev) => [opex, ...prev]);
+    try {
+      await createOperatingExpenseApi(opex);
+      loadDatabaseStats();
+    } catch (e) {
+      console.warn('Failed to persist operating expense to database:', e);
+    }
   };
 
-  const handleUpdateInvoice = (updated: SalesInvoiceAR) => {
+  const handleUpdateInvoice = async (updated: SalesInvoiceAR) => {
     setSalesInvoices((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+    try {
+      await updateReceivableApi(updated.id, updated);
+      loadDatabaseStats();
+    } catch (e) {
+      console.warn('Failed to update AR invoice in database:', e);
+    }
   };
 
-  const handleUpdateApInvoice = (updated: PurchaseInvoiceAP) => {
+  const handleUpdateApInvoice = async (updated: PurchaseInvoiceAP) => {
     setPurchaseInvoices((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+    try {
+      await updatePayableApi(updated.id, updated);
+      loadDatabaseStats();
+    } catch (e) {
+      console.warn('Failed to update AP bill in database:', e);
+    }
   };
 
-  const handleResetDemo = () => {
-    setBusinessProfile(DEMO_BUSINESS_PROFILE);
-    setTransactions(DEMO_TRANSACTIONS);
-    setSalesInvoices(DEMO_SALES_INVOICES);
-    setPurchaseInvoices(DEMO_PURCHASE_INVOICES);
-    setOperatingExpenses(DEMO_OPERATING_EXPENSES);
-    setInventoryItems(DEMO_INVENTORY_ITEMS);
-    setLoans(DEMO_LOANS);
-    setTaxes(DEMO_TAXES);
-    setVarianceRecords(DEMO_VARIANCE_RECORDS);
-    setRecommendations(DEMO_RECOMMENDATIONS);
+  const handleImportTransactions = async (newTxs: FinancialTransaction[]) => {
+    setTransactions((prev) => [...newTxs, ...prev]);
+    try {
+      for (const tx of newTxs) {
+        await createTransactionApi(tx);
+      }
+      loadDatabaseStats();
+      syncMonitoringCounts();
+    } catch (e) {
+      console.warn('Failed to persist imported transactions to database:', e);
+    }
+  };
+
+  const handleResetDemo = async () => {
+    try {
+      const res = await resetDatabaseApi();
+      if (res.success && res.data) {
+        if (res.data.businessProfile) setBusinessProfile(res.data.businessProfile);
+        if (res.data.transactions) setTransactions(res.data.transactions);
+        if (res.data.salesInvoices) setSalesInvoices(res.data.salesInvoices);
+        if (res.data.purchaseInvoices) setPurchaseInvoices(res.data.purchaseInvoices);
+        if (res.data.operatingExpenses) setOperatingExpenses(res.data.operatingExpenses);
+        if (res.data.inventoryItems) setInventoryItems(res.data.inventoryItems);
+        if (res.data.loans) setLoans(res.data.loans);
+        if (res.data.taxes) setTaxes(res.data.taxes);
+        if (res.data.varianceRecords) setVarianceRecords(res.data.varianceRecords);
+        if (res.data.recommendations) setRecommendations(res.data.recommendations);
+        if (res.data.stats) setDatabaseStats(res.data.stats);
+      }
+    } catch {
+      setBusinessProfile(DEMO_BUSINESS_PROFILE);
+      setTransactions(DEMO_TRANSACTIONS);
+      setSalesInvoices(DEMO_SALES_INVOICES);
+      setPurchaseInvoices(DEMO_PURCHASE_INVOICES);
+      setOperatingExpenses(DEMO_OPERATING_EXPENSES);
+      setInventoryItems(DEMO_INVENTORY_ITEMS);
+      setLoans(DEMO_LOANS);
+      setTaxes(DEMO_TAXES);
+      setVarianceRecords(DEMO_VARIANCE_RECORDS);
+      setRecommendations(DEMO_RECOMMENDATIONS);
+    }
     setAcknowledgedAlertIds(new Set());
     setActiveScenario('expected');
     setScenarioParams({
@@ -394,6 +513,7 @@ export default function App() {
       optimistic: { salesMultiplier: 1.15, arCollectionDelayDays: -3, expenseMultiplier: 0.95, apPaymentGraceDays: 3 },
       pessimistic: { salesMultiplier: 0.85, arCollectionDelayDays: 7, expenseMultiplier: 1.08, apPaymentGraceDays: 0 },
     });
+    syncMonitoringCounts();
   };
 
   const handleExportCsv = () => {
@@ -463,6 +583,8 @@ export default function App() {
         onExportCsv={handleExportCsv}
         onResetDemo={handleResetDemo}
         isAiLoading={isAiLoading}
+        databaseStats={databaseStats}
+        onRefreshDatabase={loadDatabaseStats}
         onOpenLiveVoice={() => setIsLiveVoiceOpen(true)}
         onOpenChat={() => setIsChatbotOpen(true)}
         onOpenGrounding={() => setIsGroundingOpen(true)}
@@ -749,7 +871,7 @@ export default function App() {
         {activeTab === 'ingestion' && (
           <IngestionView
             transactions={transactions}
-            onAddTransactions={(newTxs) => setTransactions((prev) => [...newTxs, ...prev])}
+            onAddTransactions={handleImportTransactions}
             currencySymbol={businessProfile.currencySymbol}
           />
         )}
@@ -777,7 +899,7 @@ export default function App() {
       <CsvImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-        onImportTransactions={(newTxs) => setTransactions((prev) => [...newTxs, ...prev])}
+        onImportTransactions={handleImportTransactions}
       />
 
       {/* 5. Multimodal & Grounding Gemini Modals */}

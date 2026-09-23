@@ -296,3 +296,193 @@ export async function requestAudioTranscription(
   }
 }
 
+// ==============================================================================
+// DATABASE & BACKEND PERSISTENCE SERVICES
+// ==============================================================================
+
+export interface DatabaseStats {
+  connected: boolean;
+  engine: string;
+  databasePath: string;
+  fileSizeBytes: number;
+  fileSizeFormatted: string;
+  totalRows: number;
+  tableCounts: Record<string, number>;
+  timestamp: string;
+}
+
+export interface BootstrapResponse {
+  success: boolean;
+  data?: {
+    businessProfile: any;
+    transactions: any[];
+    salesInvoices: any[];
+    purchaseInvoices: any[];
+    operatingExpenses: any[];
+    inventoryItems: any[];
+    loans: any[];
+    taxes: any[];
+    varianceRecords: any[];
+    recommendations: any[];
+    bankAccounts: any[];
+    stats: DatabaseStats;
+  };
+  error?: string;
+}
+
+/**
+ * Fetch full authoritative financial model loaded directly from persistent database
+ */
+export async function fetchBootstrapData(): Promise<BootstrapResponse> {
+  try {
+    const res = await fetch('/api/bootstrap');
+    if (res.ok) {
+      return await res.json();
+    }
+    return { success: false, error: `HTTP ${res.status}: Failed to fetch bootstrap data` };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Database server connection error' };
+  }
+}
+
+/**
+ * Check persistent database status and table metrics
+ */
+export async function fetchDatabaseStatus(): Promise<{ success: boolean; data?: DatabaseStats; error?: string }> {
+  try {
+    const res = await fetch('/api/database/status');
+    if (res.ok) {
+      return await res.json();
+    }
+    return { success: false, error: `HTTP ${res.status}` };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Database status unreachable' };
+  }
+}
+
+/**
+ * Store newly added transaction directly into database
+ */
+export async function createTransactionApi(tx: any): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch('/api/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tx),
+    });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Failed to save transaction' };
+  }
+}
+
+/**
+ * Store newly added AR Invoice directly into database
+ */
+export async function createReceivableApi(inv: any): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch('/api/invoices/receivable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(inv),
+    });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Failed to save receivable' };
+  }
+}
+
+/**
+ * Update AR Invoice in database (e.g. mark collected, change status)
+ */
+export async function updateReceivableApi(id: string, updates: any): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/invoices/receivable/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Failed to update receivable' };
+  }
+}
+
+/**
+ * Store newly added AP Bill directly into database
+ */
+export async function createPayableApi(bill: any): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch('/api/invoices/payable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bill),
+    });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Failed to save payable' };
+  }
+}
+
+/**
+ * Update AP Bill in database (e.g. mark paid, reschedule payment)
+ */
+export async function updatePayableApi(id: string, updates: any): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/invoices/payable/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Failed to update payable' };
+  }
+}
+
+/**
+ * Store newly added Operating Expense into database
+ */
+export async function createOperatingExpenseApi(opex: any): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch('/api/operating-expenses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opex),
+    });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Failed to save operating expense' };
+  }
+}
+
+/**
+ * Toggle recommendation implementation status in database
+ */
+export async function toggleRecommendationApi(id: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/recommendations/${id}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Failed to toggle recommendation' };
+  }
+}
+
+/**
+ * Reset database to pristine baseline model and retrieve refreshed state
+ */
+export async function resetDatabaseApi(): Promise<BootstrapResponse> {
+  try {
+    const res = await fetch('/api/reset-demo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Failed to reset database' };
+  }
+}
+

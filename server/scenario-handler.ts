@@ -14,6 +14,7 @@ import {
 import { ForecastEngine } from '../src/services/forecast-engine';
 import { forecastStore } from './forecast-handler';
 import { inMemoryStore } from './import-handler';
+import { getDatabase } from './db';
 
 const DEFAULT_ORG_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -233,6 +234,30 @@ export async function handleScenarioApi(req: IncomingMessage, res: ServerRespons
           created_at: new Date().toISOString(),
         }));
         scenarioStore.assumptions.set(id, asms);
+      }
+
+      try {
+        const db = getDatabase();
+        db.prepare(`
+          INSERT OR REPLACE INTO forecast_scenarios (
+            id, organization_id, base_forecast_id, name, description, scenario_type,
+            status, result_status, created_by, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          newScenario.id,
+          newScenario.organization_id,
+          newScenario.base_forecast_id,
+          newScenario.name,
+          newScenario.description,
+          newScenario.scenario_type,
+          newScenario.status,
+          newScenario.result_status,
+          newScenario.created_by,
+          newScenario.created_at,
+          newScenario.updated_at
+        );
+      } catch (e) {
+        console.error('Failed to save scenario to SQLite:', e);
       }
 
       sendJson(res, 201, {
