@@ -9,6 +9,8 @@ import {
   Calendar,
   Building2,
   TrendingUp,
+  Bell,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { ScenarioType } from '../types/financial';
 
@@ -30,6 +32,9 @@ interface HeaderProps {
   onOpenChat?: () => void;
   onOpenGrounding?: () => void;
   onOpenTranscription?: () => void;
+  onOpenNotifications?: () => void;
+  onOpenMonitoringSettings?: () => void;
+  unreadNotificationsCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -50,6 +55,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenChat,
   onOpenGrounding,
   onOpenTranscription,
+  onOpenNotifications,
+  onOpenMonitoringSettings,
+  unreadNotificationsCount = 0,
 }) => {
   return (
     <header className="border-b border-slate-200 bg-white sticky top-0 z-30 shadow-xs">
@@ -199,6 +207,29 @@ export const Header: React.FC<HeaderProps> = ({
               className="inline-flex items-center p-1.5 rounded-lg text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors shadow-xs cursor-pointer"
             >
               <RefreshCw className="h-4 w-4" />
+            </button>
+
+            {/* Notification Bell */}
+            <button
+              onClick={onOpenNotifications}
+              title="Financial Notifications"
+              className="relative inline-flex items-center p-1.5 rounded-lg text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors shadow-xs cursor-pointer"
+            >
+              <Bell className="h-4 w-4" />
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full text-[9px] font-bold bg-rose-600 text-white min-w-[16px] text-center">
+                  {unreadNotificationsCount}
+                </span>
+              )}
+            </button>
+
+            {/* Monitoring Settings */}
+            <button
+              onClick={onOpenMonitoringSettings}
+              title="Risk & Monitoring Threshold Configuration"
+              className="inline-flex items-center p-1.5 rounded-lg text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors shadow-xs cursor-pointer"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
             </button>
 
             {/* Reset Demo */}

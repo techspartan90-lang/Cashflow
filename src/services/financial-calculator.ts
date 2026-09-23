@@ -36,7 +36,20 @@ export const MonetaryMath = {
     return this.fromCents(this.toCents(a) - this.toCents(b));
   },
 
+  multiply(amount: number, factor: number): number {
+    return this.fromCents(Math.round(this.toCents(amount) * factor));
+  },
+
+  divide(amount: number, divisor: number): number {
+    if (divisor === 0) return 0;
+    return this.fromCents(Math.round(this.toCents(amount) / divisor));
+  },
+
   round(amount: number): number {
+    return this.fromCents(this.toCents(amount));
+  },
+
+  round2(amount: number): number {
     return this.fromCents(this.toCents(amount));
   },
 };

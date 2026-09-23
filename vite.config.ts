@@ -11,6 +11,27 @@ import {
   handleAudioTranscription,
   setupLiveVoiceWebSocket,
 } from './server/gemini-handler';
+import {
+  handleImportPreview,
+  handleImportConfirm,
+  handleGetImportHistory,
+  handleGetTransactions,
+  handleCategorizeTransaction,
+  handleImportReceivables,
+  handleImportPayables,
+  handleGetDataQualitySummary,
+} from './server/import-handler';
+import {
+  handleForecastGenerate,
+  handleForecastPreview,
+  handleGetForecastRuns,
+  handleGetForecastDetails,
+  handleGetForecastShortfalls,
+  handleGetForecastExplanation,
+  handleForecastRefresh,
+} from './server/forecast-handler';
+import { handleScenarioApi } from './server/scenario-handler';
+import { handleMonitoringApi } from './server/monitoring-handler';
 
 function apiMiddlewarePlugin(): Plugin {
   return {
@@ -52,20 +73,109 @@ function apiMiddlewarePlugin(): Plugin {
         });
       };
 
+      // Helper to handle JSON GET requests
+      const handleJsonGet = (
+        endpoint: string,
+        handler: (query: any) => Promise<any>
+      ) => {
+        server.middlewares.use(endpoint, async (req, res) => {
+          if (req.method === 'GET') {
+            try {
+              const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+              const query: Record<string, string> = {};
+              url.searchParams.forEach((val, key) => {
+                query[key] = val;
+              });
+              const result = await handler(query);
+              res.setHeader('Content-Type', 'application/json');
+              res.statusCode = 200;
+              res.end(JSON.stringify(result));
+            } catch (err: any) {
+              res.setHeader('Content-Type', 'application/json');
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: err?.message || 'Server error' }));
+            }
+          } else {
+            res.statusCode = 405;
+            res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+          }
+        });
+      };
+
       // 1. Financial Deep Advisory
       handleJsonPost('/api/gemini/analyze', handleAiFinancialAnalysis);
 
-      // 2. Multi-turn Chat (gemini-3.5-flash, gemini-3.1-flash-lite, gemini-3.1-pro-preview)
+      // 2. Multi-turn Chat
       handleJsonPost('/api/gemini/chat', handleAiChat);
 
-      // 3. Search Grounding (gemini-3.5-flash with googleSearch)
+      // 3. Search Grounding
       handleJsonPost('/api/gemini/search', handleSearchGrounding);
 
-      // 4. Maps Grounding (gemini-3.5-flash with googleMaps)
+      // 4. Maps Grounding
       handleJsonPost('/api/gemini/maps', handleMapsGrounding);
 
-      // 5. Audio Transcription (gemini-3.5-transcribe)
+      // 5. Audio Transcription
       handleJsonPost('/api/gemini/transcribe', handleAudioTranscription);
+
+      // Phase 3 Ingestion & Data Quality APIs
+      handleJsonPost('/api/imports/preview', handleImportPreview);
+      handleJsonPost('/api/imports/confirm', handleImportConfirm);
+      handleJsonGet('/api/imports', handleGetImportHistory);
+      handleJsonGet('/api/transactions', handleGetTransactions);
+      handleJsonPost('/api/transactions/categorize', handleCategorizeTransaction);
+      handleJsonPost('/api/accounts-receivable/import', handleImportReceivables);
+      handleJsonPost('/api/accounts-payable/import', handleImportPayables);
+      handleJsonGet('/api/data-quality/summary', handleGetDataQualitySummary);
+
+      // Phase 4 Deterministic 30-Day Forecast APIs
+      handleJsonPost('/api/forecasts/generate', handleForecastGenerate);
+      handleJsonPost('/api/forecasts/preview', handleForecastPreview);
+      handleJsonGet('/api/forecasts/details', handleGetForecastDetails);
+      handleJsonGet('/api/forecasts/shortfalls', handleGetForecastShortfalls);
+      handleJsonGet('/api/forecasts/explanation', handleGetForecastExplanation);
+      handleJsonGet('/api/forecasts', handleGetForecastRuns);
+      handleJsonPost('/api/forecasts/refresh', handleForecastRefresh);
+
+      // Phase 6 Scenario Simulation, Sensitivity & Decision Support APIs
+      server.middlewares.use(async (req, res, next) => {
+        if (req.url && req.url.startsWith('/api/scenarios')) {
+          try {
+            const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+            const handled = await handleScenarioApi(req, res, url);
+            if (handled) return;
+          } catch (err: any) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+            return;
+          }
+        }
+        next();
+      });
+
+      // Phase 7 Alerts, Recommendations, Variance & Monitoring APIs
+      server.middlewares.use(async (req, res, next) => {
+        if (
+          req.url &&
+          (req.url.startsWith('/api/alerts') ||
+            req.url.startsWith('/api/alert-rules') ||
+            req.url.startsWith('/api/notifications') ||
+            req.url.startsWith('/api/notification-preferences') ||
+            req.url.startsWith('/api/variance') ||
+            req.url.startsWith('/api/monitoring') ||
+            req.url.startsWith('/api/recommendations'))
+        ) {
+          try {
+            const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+            const handled = await handleMonitoringApi(req, res, url);
+            if (handled) return;
+          } catch (err: any) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+            return;
+          }
+        }
+        next();
+      });
 
       // 6. Live API Voice WebSocket bridge (gemini-3.8-live)
       if (server.httpServer) {

@@ -8,11 +8,17 @@ import {
   ShieldCheck,
   GitCompare,
   Database,
+  Sliders,
+  ShieldAlert,
+  Lightbulb,
 } from 'lucide-react';
 
 export type TabKey =
   | 'dashboard'
   | 'trajectory'
+  | 'scenarios'
+  | 'alerts'
+  | 'recommendations'
   | 'receivables'
   | 'payables'
   | 'inventory'
@@ -25,6 +31,7 @@ interface NavigationProps {
   onTabChange: (tab: TabKey) => void;
   alertsCount?: number;
   deviationsCount?: number;
+  recommendationsCount?: number;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -32,15 +39,19 @@ export const Navigation: React.FC<NavigationProps> = ({
   onTabChange,
   alertsCount = 0,
   deviationsCount = 0,
+  recommendationsCount = 0,
 }) => {
-  const tabs: Array<{ key: TabKey; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number }> = [
+  const tabs: Array<{ key: TabKey; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number; badgeColor?: string }> = [
     { key: 'dashboard', label: 'Executive Dashboard', icon: LayoutDashboard },
-    { key: 'trajectory', label: 'Forecast & Scenarios', icon: TrendingUp },
+    { key: 'trajectory', label: 'Deterministic Forecast', icon: TrendingUp },
+    { key: 'scenarios', label: 'Scenario Studio', icon: Sliders },
+    { key: 'alerts', label: 'Alert Center', icon: ShieldAlert, badge: alertsCount, badgeColor: 'bg-rose-100 text-rose-800' },
+    { key: 'recommendations', label: 'Action Plays', icon: Lightbulb, badge: recommendationsCount, badgeColor: 'bg-amber-100 text-amber-800' },
     { key: 'receivables', label: 'Receivables (AR)', icon: ArrowDownLeft },
     { key: 'payables', label: 'Payables & OpEx', icon: ArrowUpRight },
     { key: 'inventory', label: 'Inventory Planning', icon: Package },
     { key: 'obligations', label: 'Loans & Taxes', icon: ShieldCheck },
-    { key: 'variance', label: 'Variance Analysis', icon: GitCompare, badge: deviationsCount },
+    { key: 'variance', label: 'Variance Monitoring', icon: GitCompare, badge: deviationsCount, badgeColor: 'bg-indigo-100 text-indigo-800' },
     { key: 'ingestion', label: 'Data Ingestion', icon: Database },
   ];
 
@@ -68,7 +79,7 @@ export const Navigation: React.FC<NavigationProps> = ({
                 />
                 <span>{tab.label}</span>
                 {tab.badge && tab.badge > 0 ? (
-                  <span className="ml-2 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                  <span className={`ml-2 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${tab.badgeColor || 'bg-amber-100 text-amber-800'}`}>
                     {tab.badge}
                   </span>
                 ) : null}

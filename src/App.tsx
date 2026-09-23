@@ -53,12 +53,18 @@ import { RecommendationsCards } from './components/dashboard/RecommendationsCard
 import { GitCompare, TrendingUp, Layers } from 'lucide-react';
 
 import { TrajectoryView } from './components/views/TrajectoryView';
+import { ScenarioStudioView } from './components/views/ScenarioStudioView';
 import { ReceivablesView } from './components/views/ReceivablesView';
 import { PayablesView } from './components/views/PayablesView';
 import { InventoryView } from './components/views/InventoryView';
 import { ObligationsView } from './components/views/ObligationsView';
 import { VarianceView } from './components/views/VarianceView';
 import { IngestionView } from './components/views/IngestionView';
+import { AlertCenterView } from './components/views/AlertCenterView';
+import { RecommendationsView } from './components/views/RecommendationsView';
+import { MonitoringSettingsModal } from './components/modals/MonitoringSettingsModal';
+import { NotificationCenterModal } from './components/modals/NotificationCenterModal';
+import { MonitoringApiClient } from './services/monitoring-api';
 
 import { AiAdvisoryModal } from './components/modals/AiAdvisoryModal';
 import { AddTransactionModal } from './components/modals/AddTransactionModal';
@@ -121,6 +127,40 @@ export default function App() {
   const [aiAdvisoryData, setAiAdvisoryData] = useState<AiAdvisoryResponse | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [acknowledgedAlertIds, setAcknowledgedAlertIds] = useState<Set<string>>(new Set());
+
+  // Phase 7 Monitoring & Notification States
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isMonitoringSettingsOpen, setIsMonitoringSettingsOpen] = useState(false);
+  const [monitoringAlertsCount, setMonitoringAlertsCount] = useState(0);
+  const [monitoringRecsCount, setMonitoringRecsCount] = useState(0);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+
+  const syncMonitoringCounts = useCallback(async () => {
+    try {
+      const [alertsRes, notifsRes, recsRes] = await Promise.all([
+        MonitoringApiClient.getAlerts({ status: 'active' }),
+        MonitoringApiClient.getNotifications(),
+        MonitoringApiClient.getRecommendations(),
+      ]);
+
+      if (alertsRes.success && alertsRes.data) {
+        setMonitoringAlertsCount(alertsRes.data.length);
+      }
+      if (notifsRes.success && notifsRes.data) {
+        const unread = notifsRes.data.filter((n) => !n.isRead).length;
+        setUnreadNotificationsCount(unread);
+      }
+      if (recsRes.success && recsRes.data) {
+        setMonitoringRecsCount(recsRes.data.length);
+      }
+    } catch {
+      // Ignore background sync errors
+    }
+  }, []);
+
+  useEffect(() => {
+    syncMonitoringCounts();
+  }, [syncMonitoringCounts]);
 
   // 2. Deterministic & Stochastic Forecast Engine Computations
   const engineInput: EngineInputState = useMemo(() => ({
@@ -427,14 +467,18 @@ export default function App() {
         onOpenChat={() => setIsChatbotOpen(true)}
         onOpenGrounding={() => setIsGroundingOpen(true)}
         onOpenTranscription={() => setIsTranscriptionOpen(true)}
+        onOpenNotifications={() => setIsNotificationsOpen(true)}
+        onOpenMonitoringSettings={() => setIsMonitoringSettingsOpen(true)}
+        unreadNotificationsCount={unreadNotificationsCount}
       />
 
       {/* 2. Horizontal Navigation Tabs */}
       <Navigation
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        alertsCount={activeAlerts.length}
+        alertsCount={monitoringAlertsCount || activeAlerts.length}
         deviationsCount={varianceMetrics.materialDeviationsCount}
+        recommendationsCount={monitoringRecsCount}
       />
 
       {/* 3. Main Workspace Content Area */}
@@ -631,15 +675,16 @@ export default function App() {
 
         {activeTab === 'trajectory' && (
           <TrajectoryView
-            dailyExpected={dailyExpected}
-            dailyOptimistic={dailyOptimistic}
-            dailyPessimistic={dailyPessimistic}
-            monteCarlo={monteCarloResult}
             currencySymbol={businessProfile.currencySymbol}
             minimumThreshold={businessProfile.minimumCashReserveThreshold}
-            scenarioParams={scenarioParams}
-            onUpdateScenarioParams={handleUpdateScenarioParams}
             onExportCsv={handleExportCsv}
+          />
+        )}
+
+        {activeTab === 'scenarios' && (
+          <ScenarioStudioView
+            currencySymbol={businessProfile.currencySymbol}
+            minimumThreshold={businessProfile.minimumCashReserveThreshold}
           />
         )}
 
@@ -650,6 +695,21 @@ export default function App() {
             currencySymbol={businessProfile.currencySymbol}
             onUpdateInvoice={handleUpdateInvoice}
             onOpenAddModal={() => setIsAddModalOpen(true)}
+          />
+        )}
+
+        {activeTab === 'alerts' && (
+          <AlertCenterView
+            currencySymbol={businessProfile.currencySymbol}
+            onNavigateToTab={(tab) => setActiveTab(tab as TabKey)}
+            onRefreshForecast={syncMonitoringCounts}
+          />
+        )}
+
+        {activeTab === 'recommendations' && (
+          <RecommendationsView
+            currencySymbol={businessProfile.currencySymbol}
+            onNavigateToTab={(tab) => setActiveTab(tab as TabKey)}
           />
         )}
 
@@ -761,6 +821,21 @@ export default function App() {
           // Add transcribed note as a memo or transaction record
           console.log('Applied voice transcription:', text);
         }}
+      />
+
+      {/* 6. Phase 7 Risk Monitoring & Notification Modals */}
+      <NotificationCenterModal
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        onNavigateToTab={(tab) => setActiveTab(tab as TabKey)}
+        onNotificationsChanged={syncMonitoringCounts}
+      />
+
+      <MonitoringSettingsModal
+        isOpen={isMonitoringSettingsOpen}
+        onClose={() => setIsMonitoringSettingsOpen(false)}
+        currencySymbol={businessProfile.currencySymbol}
+        onSaved={syncMonitoringCounts}
       />
 
       {/* Footer */}
