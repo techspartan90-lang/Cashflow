@@ -18,7 +18,7 @@ const MAX_REQUESTS_PER_WINDOW = 300; // 300 requests per minute per IP
 /**
  * Clean up stale rate limit entries periodically
  */
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [key, bucket] of rateLimitMap.entries()) {
     if (now > bucket.resetTime) {
@@ -26,6 +26,9 @@ setInterval(() => {
     }
   }
 }, 60000);
+if (cleanupInterval && typeof cleanupInterval.unref === 'function') {
+  cleanupInterval.unref();
+}
 
 /**
  * Apply secure HTTP headers conforming to OWASP specifications

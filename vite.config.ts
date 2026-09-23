@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
 import path from 'path';
 import { defineConfig, type Plugin } from 'vite';
 import { WebSocketServer } from 'ws';
@@ -255,9 +256,28 @@ function apiMiddlewarePlugin(): Plugin {
   };
 }
 
+function githubPagesPlugin(): Plugin {
+  return {
+    name: 'github-pages-fallback',
+    closeBundle() {
+      try {
+        const distDir = path.resolve(import.meta.dirname || '.', 'dist');
+        const indexPath = path.join(distDir, 'index.html');
+        const fallbackPath = path.join(distDir, '404.html');
+        if (fs.existsSync(indexPath)) {
+          fs.copyFileSync(indexPath, fallbackPath);
+        }
+      } catch (e) {
+        // ignore errors during bundle close
+      }
+    },
+  };
+}
+
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), apiMiddlewarePlugin()],
+    base: './',
+    plugins: [react(), tailwindcss(), apiMiddlewarePlugin(), githubPagesPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname || '.', '.'),
