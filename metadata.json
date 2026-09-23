@@ -1,0 +1,9 @@
+{
+  "name": "CashFlow Intelligence",
+  "description": "AI-powered 30-day cash-flow forecasting and liquidity risk intelligence platform for small businesses.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
